@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -J RNAseq_alignment
-#SBATCH -A ***REMOVED***
+#SBATCH -A 
 #SBATCH --time=8:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
