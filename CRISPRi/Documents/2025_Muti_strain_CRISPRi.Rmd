@@ -1,0 +1,817 @@
+---
+title: "Multi_strain_comp"
+author: ""
+date: ""
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r pacman load libraries}
+### install packages that are not already installed in the libraries
+
+packs_required<-c("BiocManager","pacman")
+if_insta_packs<-packs_required %in% rownames(installed.packages())
+if (any(if_insta_packs == FALSE)) {
+  install.packages(packs_required[!if_insta_packs])
+  }
+
+# load CRAN and Bioconductor packages
+pacman::p_load(tidyverse,data.table,ggrepel,ggpubr,DESeq2,viridis,RColorBrewer,ggupset,ggtext,ggExtra,rstatix,patchwork,ggh4x,UpSetR)
+
+# load github packages
+pacman::p_load_gh("coolbutuseless/ggpattern", "davidsjoberg/ggsankey","yanlinlin82/ggvenn") 
+
+```
+
+==================================== load data ====================================
+
+```{r load data, include=FALSE}
+######################## load CRISPRi data ########################
+
+# this pipeline is set for loading multiple runs of exact results
+ex_res_all_multirun<-NULL
+
+# Identify path to the exact test files, note this is should be the path to the parent folder including one level of sub-folders containing exact test results files in .tsv format
+ex_files_path<-"Results/CRISPRi/data_long/output/"
+
+# The names of experiment (i.e. sub-folder names) as a list. Add, remove, or change the names in quotes where applicable
+expIDs_to_run<-c("ex03", "ex07","ex08","ex09")
+
+
+# load and combine exact results files
+ex_res_all_multirun<-NULL
+
+for (exp_ID in expIDs_to_run) {
+  file_path<-paste0(ex_files_path,exp_ID)
+  ex_file_all<-list.files(file_path)
+  ex_res_all<-lapply(paste0(file_path,"/",ex_file_all), read.delim, header = TRUE,sep = "")
+  ex_res_all <- do.call("rbind", ex_res_all)
+  ex_res_all$exp.id<-exp_ID
+  ex_res_all_multirun<-rbind(ex_res_all_multirun,ex_res_all)
+}
+
+
+
+
+# load guide summary
+
+sum_guide<-read.csv("Documents/summary_guide_data.csv")
+
+
+# clean up the combined results
+
+ex_res_all_multirun$target.gene<-sum_guide$target.gene[match(ex_res_all_multirun$guide.id,sum_guide$guide.id)]
+
+
+# # save combined results as a spreadsheet, remove # from the following two commands(ie. starting with "dir.create" and "write.csv")  to run 
+
+# dir.create(file.path("Results/CRISPRi/", format(Sys.Date(), "%y%m%d")), showWarnings = FALSE)
+
+# write.csv(ex_res_all_multirun,paste0("Results/CRISPRi/",format(Sys.Date(), "%y%m%d"),"/","ex_res_all_multirun.csv"), row.names = FALSE)
+
+
+# # load rock's paper's essentiality data
+rock_essM<-read.csv("Documents/Mtb_H37rv_essentiality.csv")
+
+
+# Load the tidied up gene classification ref, same names with upper or lower case words had been cleaned to match
+uni_pat_mycob_kegg_merge<-read.csv("Documents/1Rock_uni_pat_mycob_kegg_merge_classes.csv")
+# uni_pat_mycob_kegg_merge$BRC.ID<-gsub("fig\\|","",uni_pat_mycob_kegg_merge$BRC.ID)
+
+
+######################## load RNA seq data ######################## 
+
+# load deseq analyses results from RNAseq analyses
+# Deseq_res_multi<-read_csv("Results/RNAseq/RNAseq_deseq_res_all.csv", skip_empty_rows = TRUE) %>% select(-"...1") %>% filter(!is.na(target.gene))
+
+```
+
+```{r CRISPRi data summary}
+
+# convert the timepoint data to factor format
+ex_res_all_multirun$day<-factor(ex_res_all_multirun$day,levels = c("d5","d10","d14"))
+
+# Calculate the total number of guides included in the downstream analyses
+ex_res_guide_total<- ex_res_all_multirun %>% 
+  # only keeps data under atc-3, 30 and 300.
+  #subset(exp.id!="ex03") %>% 
+  subset( ., .$atc.conc%in%c("Atc-3","Atc-30" ,"Atc-300")) %>%
+  group_by(strain,day,exp.id,atc.conc) %>% summarise(NO_tg=length(unique(guide.id)),No_gene=length(unique(target.gene)))
+
+
+
+# Identify depleted guides across timepoints and ATc concentrations
+## if log2Foldchange <= -1 and adjusted pvalue < 0.01, set as "Depleted", else "Not_depleted
+ex_res_subset<- ex_res_all_multirun %>%
+  subset( ., .$atc.conc%in%c("Atc-3","Atc-30" ,"Atc-300")) %>%
+  subset(.,.$target.gene != "NEG") %>%
+  mutate(diffexpressed = "Not_depleted") %>%
+  mutate(diffexpressed = ifelse(.$logFC <=-1 & .$p.adj < 0.01, "Depleted", diffexpressed)) # %>% 
+  # mutate(diffexpressed = ifelse(.$logFC >=1 & .$p.adj < 0.01, "Enriched", diffexpressed))
+
+
+# calculate the summary table for sanity check
+  # In our case the total number of guides in any category should not exceed 22996
+ex_res_subset_sum<-ex_res_subset %>% 
+  #subset(strain%in%c("6206","INH-1")) %>%
+  group_by(diffexpressed,strain,exp.id,day,atc.conc) %>% #,day,atc.conc
+  summarise(NO_tg=length(unique(guide.id))) %>% 
+  pivot_wider(names_from = diffexpressed,values_from = NO_tg) %>% 
+  mutate(Depleted=ifelse(is.na(Depleted), 0,Depleted),
+         total_guide=Depleted+Not_depleted) 
+
+
+# calculate total number of guides per gene per condition
+total_sgRNA_our_ex_res<-ex_res_subset %>%
+  dplyr::group_by(strain,day,atc.conc,target.gene,exp.id) %>%
+  dplyr::summarise(guidePG=length(unique(guide.id)))
+
+ex_res_subset$guidePG<-total_sgRNA_our_ex_res$guidePG[match(paste0(ex_res_subset$target.gene,ex_res_subset$atc.conc,ex_res_subset$strain,ex_res_subset$day,ex_res_subset$exp.id),paste0(total_sgRNA_our_ex_res$target.gene,total_sgRNA_our_ex_res$atc.conc,total_sgRNA_our_ex_res$strain,total_sgRNA_our_ex_res$day,total_sgRNA_our_ex_res$exp.id))]
+
+
+
+### Number of essential genes using 2 logFC cut offs (before normalisation across experiments)
+ess_genes<-ex_res_subset %>%
+  subset(diffexpressed=="Depleted"&target.gene!="NEG") %>%
+  group_by(strain,target.gene,day,atc.conc,exp.id,guidePG,diffexpressed) %>% 
+  summarise(SgRNA_n=length(unique(guide.id))) %>%
+  subset(SgRNA_n>=2) %>% 
+  mutate(groupID=paste0(exp.id,target.gene,strain))
+
+
+ess_genes_sum<-ess_genes %>% 
+  group_by(strain,exp.id,day,atc.conc,diffexpressed) %>% 
+  summarise(num_gene = length(unique(target.gene)))
+
+# plot the number of essential genes identified per strain using day 14 data (before normalisation)
+ess_genes_sum %>%  
+  filter(day=="d14") %>% 
+  ggplot(aes(strain,num_gene))+
+  geom_text(aes(label = num_gene), position = position_dodge2(width = 0.9, preserve = "single") ,size=3,vjust=-0.5, colour = "black")+
+  geom_bar(aes(fill=atc.conc), color="black",stat = "identity",position = position_dodge2(width = 0.5,preserve = "single"))+
+  scale_fill_manual(values = c("Atc-3"="#E69F00","Atc-30"="#74c476","Atc-300"="#0072B2"))+
+  facet_grid(~exp.id, scales = "free_x")+
+  ylim(0,750)+
+  force_panelsizes(cols = unit(c(4.3, 6, 6,6), "cm"), TRUE)+
+  theme_minimal()+
+  annotation_custom(grid::linesGrob(y = c(0, 0), gp = grid::gpar(lwd = 3))) +
+  annotation_custom(grid::linesGrob(x = c(0, 0), gp = grid::gpar(lwd = 3))) +
+  theme(panel.grid = element_blank(), strip.text = element_text(size = 12), legend.position = "top", legend.title = element_blank(), legend.text = element_text(size = 12), axis.text.y = element_blank(), axis.text = element_text(size=10), axis.title = element_text(size = 12), panel.spacing.x = unit(10, 'mm'))
+
+  
+
+
+
+
+```
+
+```{r vulnerability calls normalisation across experiments}
+
+# use ex03 6206 as the standard 
+
+std_data_ex03<- ex_res_subset %>% 
+  filter(atc.conc=="Atc-300",day=="d14",exp.id=="ex03", strain=="6206", diffexpressed=="Depleted")
+
+# make a function to identify best cut-offs for different strains
+best_cut_off<-function(input_data,exp_sel,std=std_data_ex03, p_cut=0.01){
+  
+  res_sum<-NULL
+  std_dep_guide<-unique(std$guide.id)
+  
+  
+  for (c in seq(-0.5,-5, -0.25)) {
+
+    temp_dep<-input_data %>% 
+      filter(exp.id==exp_sel,strain=="6206",day=="d14",atc.conc=="Atc-300") %>% 
+      mutate(diffexpressed = ifelse(.$logFC <=c & .$p.adj < p_cut, "Depleted","Not_depleted")) %>% 
+      filter(diffexpressed=="Depleted")
+    
+    # compare temp_dep and standard
+    total_temp_dep_guide<-length(unique(temp_dep$guide.id))
+    
+    temp_dep_sum<-data.frame(exp.id=exp_sel,total_std_deplted=length(unique(std_dep_guide)), total_deplted=total_temp_dep_guide,  total_rel= length(unique(std_dep_guide))/total_temp_dep_guide, overlap_rate = length(unique(intersect(std_dep_guide,unique(temp_dep$guide.id))))/total_temp_dep_guide, cut_off=c,p=p_cut)
+    # total_overlapped_guide=length(unique(intersect(std_dep_guide,unique(temp_dep$guide.id)))),
+    
+    res_sum<-rbind(res_sum,temp_dep_sum)
+  }
+  return(res_sum)
+}
+
+
+# select the best cut off that 6206 day 14 Atc-300 depleted guides number are compariable across the experiments
+
+t107<-best_cut_off(ex_res_all_multirun,"ex07",p_cut = 0.01)
+t108<-best_cut_off(ex_res_all_multirun,"ex08",p_cut = 0.01)
+t109<-best_cut_off(ex_res_all_multirun,"ex09",p_cut = 0.01)
+
+t07<-best_cut_off(ex_res_all_multirun,"ex07",p_cut = 0.05) # select for ex07 # logFC <= -3.50, p<0.05
+t08<-best_cut_off(ex_res_all_multirun,"ex08",p_cut = 0.05) # select for ex08 # logFC <= -4.25, p<0.05
+t09<-best_cut_off(ex_res_all_multirun,"ex09",p_cut = 0.05) 
+t09a<-best_cut_off(ex_res_all_multirun,"ex09",p_cut = 0.1) # select for ex09 # logFC <= -4.00 p<0.1
+
+ex_std_03<- ex_res_all_multirun %>%  
+  filter(exp.id=="ex03",atc.conc%in%c("Atc-3","Atc-30" ,"Atc-300"),target.gene != "NEG") %>%
+  mutate(diffexpressed = "Not_depleted") %>%
+  mutate(diffexpressed = ifelse((logFC <=-1 & p.adj < 0.01), "Depleted", diffexpressed)) 
+
+## Normalise data based ont the best cut-off identified
+ex_norm_07<-ex_res_all_multirun %>% 
+  filter(exp.id=="ex07",target.gene != "NEG") %>% 
+  mutate(diffexpressed = "Not_depleted") %>%
+  mutate(diffexpressed = ifelse(.$logFC <=-3.5 & .$p.adj < 0.05, "Depleted", diffexpressed)) 
+
+ex_norm_08<-ex_res_all_multirun %>% 
+  filter(exp.id=="ex08",target.gene != "NEG") %>% 
+  mutate(diffexpressed = "Not_depleted") %>%
+  mutate(diffexpressed = ifelse(.$logFC <=-4.25 & .$p.adj < 0.05, "Depleted", diffexpressed))
+
+ex_norm_09<-ex_res_all_multirun %>% 
+  filter(exp.id=="ex09",target.gene != "NEG") %>% 
+  mutate(diffexpressed = "Not_depleted") %>%
+  mutate(diffexpressed = ifelse(.$logFC <=-4.0 & .$p.adj < 0.1, "Depleted", diffexpressed))
+
+ex_res_all_multirun_norm<-rbind(ex_std_03,ex_norm_07,ex_norm_08,ex_norm_09)
+
+
+
+
+
+
+dep_guide_sum<- ex_res_all_multirun_norm %>% filter(day=="d14",atc.conc=="Atc-300", diffexpressed=="Depleted") %>% dplyr::group_by(strain,exp.id) %>% summarise(num_dep_guide=n_distinct(guide.id))
+
+
+# calculate the essential genes after normalisation
+ess_gene_norm <-ex_res_all_multirun_norm %>% 
+  filter(diffexpressed=="Depleted",target.gene != "NEG") %>% 
+  group_by(exp.id,atc.conc,day,strain,target.gene) %>% 
+  summarise(SgRNA_n=length(unique(guide.id))) %>% 
+  subset(SgRNA_n>=2) %>% 
+  mutate(essentiality = "Essential")
+  #mutate(groupID=paste0(exp.id,target.gene,strain)) 
+
+### Note that I did NOT filter the data based on day 14 and ATc-300 for essential genes. So all essential genes were called based on number of depleted gRNA only.
+
+
+
+ess_gene_norm03<-ess_gene_norm %>% 
+  filter(day=="d14", atc.conc=="Atc-300",exp.id=="ex03", strain=="6206")
+
+ess_gene_norm07<-ess_gene_norm %>% 
+  filter(day=="d14", atc.conc=="Atc-300",exp.id=="ex07", strain=="6206")
+
+ess_gene_norm08<-ess_gene_norm %>% 
+  filter(day=="d14", atc.conc=="Atc-300",exp.id=="ex08", strain=="6206")
+
+ess_gene_norm09<-ess_gene_norm %>% 
+  filter(day=="d14", atc.conc=="Atc-300",exp.id=="ex09", strain=="6206")
+
+# after normalisation, calculate the overlapped essential genes 
+length(intersect(ess_gene_norm03$target.gene,ess_gene_norm07$target.gene))
+# [1] 471 # 0.8870056%
+
+length(intersect(ess_gene_norm03$target.gene,ess_gene_norm08$target.gene))
+# [1] 441 # 0.8166667%
+
+length(intersect(ess_gene_norm03$target.gene,ess_gene_norm09$target.gene))
+# [1] 453 # 0.8388889%
+
+ess_gene_norm$guidePG<-total_sgRNA_our_ex_res$guidePG[match(paste0(ess_gene_norm$target.gene,ess_gene_norm$atc.conc,ess_gene_norm$strain,ess_gene_norm$day,ess_gene_norm$exp.id),paste0(total_sgRNA_our_ex_res$target.gene,total_sgRNA_our_ex_res$atc.conc,total_sgRNA_our_ex_res$strain,total_sgRNA_our_ex_res$day,total_sgRNA_our_ex_res$exp.id))]
+
+# plot number of essential genes after normalisation
+ess_gene_norm %>% 
+  filter(day=="d14", atc.conc=="Atc-300") %>% 
+  dplyr::group_by(exp.id, atc.conc, day,strain) %>% 
+  summarise(ess_gene_num=length(unique(target.gene))) %>% 
+ ggplot(aes(strain,ess_gene_num))+
+  geom_text(aes(label = ess_gene_num), position = position_dodge2(width = 0.9, preserve = "single") ,size=3,vjust=-0.5, colour = "black")+
+  geom_bar(fill="darkgrey", color="black",stat = "identity",position = position_dodge2(width = 0.5,preserve = "single"))+
+  scale_fill_manual(values = brewer.pal(n = 7, name = "Accent"))+
+  #scale_fill_manual(values = c("Atc-3"="#E69F00","Atc-30"="#74c476","Atc-300"="#0072B2"))+
+  facet_grid(~exp.id, scales = "free_x")+
+  ylim(0,720)+
+  force_panelsizes(cols = unit(c(4.3, 6, 6,6), "cm"), TRUE)+
+  theme_minimal()+
+  annotation_custom(grid::linesGrob(y = c(0, 0), gp = grid::gpar(lwd = 3))) +
+  annotation_custom(grid::linesGrob(x = c(0, 0), gp = grid::gpar(lwd = 3))) +
+  theme(panel.grid = element_blank(), strip.text = element_text(size = 12), legend.position = "top", legend.title = element_blank(), legend.text = element_text(size = 12), axis.text.y = element_blank(), axis.text = element_text(size=10), axis.title = element_text(size = 12), panel.spacing.x = unit(10, 'mm'))
+
+# =========================== Table S1-2 Exact_test_results_multirun (Normed) =============================== 
+
+
+## Generate Table S1
+TableS1<-ex_res_all_multirun_norm %>% 
+  filter(exp.id!="ex03", strain!="INH-1",atc.conc=="Atc-300") %>% 
+  mutate(gene.name=sum_guide$name.vi[match(target.gene,sum_guide$target.gene)]) %>% 
+  relocate(gene.name,.before = diffexpressed)
+
+
+TableS2<-ess_gene_norm %>% 
+  filter(day=="d14", atc.conc=="Atc-300",exp.id!="ex03") %>% 
+  select(-guidePG) %>% 
+  mutate(Class = uni_pat_mycob_kegg_merge$Class[match(target.gene,uni_pat_mycob_kegg_merge$target.gene)],
+         Subclass = uni_pat_mycob_kegg_merge$Subclass[match(target.gene,uni_pat_mycob_kegg_merge$target.gene)])
+
+
+
+## create a directory for saving tables
+# dir.create(file.path("Results/CRISPRi/Tables"), showWarnings = FALSE)
+
+## save TableS1 and S2
+# write.csv(TableS1,paste0("Results/CRISPRi/Tables/",format(Sys.Date(), "%y%m%d"), "_TableS1_norm_guides_depletion.csv"), row.names = FALSE)
+
+# write.csv(TableS2, file = paste0("Results/CRISPRi/Tables/",format(Sys.Date(), "%y%m%d"),"_TableS2_ess_gene_norm.csv"),row.names = FALSE)
+
+
+```
+
+```{r use normalised data to identify more essential genes per experiment}
+
+# identify more vulnerable genes by comparing DR vs. DS per experiment with ATc-300,  day 14 data.
+more_vulnerable_genes<-NULL
+
+
+for (exp in unique(ex_res_all_multirun_norm$exp.id)) {
+  temp_more_dep <-ex_res_all_multirun_norm %>% 
+    filter(exp.id==exp) #day=="d14",atc.conc=="Atc-300",
+  
+  strain_n<-unique(temp_more_dep$strain[temp_more_dep$strain!="6206"])
+  temp_more_dep1<-temp_more_dep%>%  pivot_wider(id_cols = c(target.gene, guide.id,atc.conc, day), names_from = c(strain),values_from = c(logFC,p.adj,diffexpressed) ) %>% 
+    mutate(exp.id=exp)
+  
+  for (st_n in strain_n) {
+    temp_more_dep1[[paste0("FC_",st_n,"_wt")]]<-temp_more_dep1[[paste0("logFC_",st_n)]]-temp_more_dep1[["logFC_6206"]]
+    temp_more_dep1[[paste0(st_n,"_wt_comparison")]]<-ifelse(temp_more_dep1[[paste0("FC_",st_n,"_wt")]]<=-1 & temp_more_dep1[[paste0("diffexpressed_",st_n)]]=="Depleted", "Depleted","Not_depleted")
+    
+    more_ess_gene_temp<-temp_more_dep1 %>% subset(temp_more_dep1[[paste0(st_n,"_wt_comparison")]]=="Depleted") %>% 
+      dplyr::group_by(target.gene,atc.conc,day) %>% 
+      dplyr::summarise(more_dep_guide_n = length(unique(guide.id))) %>% 
+  filter(more_dep_guide_n>=2) %>% 
+      mutate(exp.id=exp,comparison=paste0(st_n,"_wt_comparison"))
+    more_vulnerable_genes<-rbind(more_vulnerable_genes,more_ess_gene_temp)
+      
+  }
+
+}
+
+more_vul_sum<-more_vulnerable_genes %>% group_by(exp.id,atc.conc,day,comparison) %>% summarise(more_ess_number=length(unique(target.gene)))
+
+
+
+# =========================== More essential gene summary bar plot (Normed) ===================================== 
+
+#ess_gene_norm_clean %>% 
+Fig1B<-ess_gene_norm %>% 
+  filter(day=="d14", atc.conc=="Atc-300",exp.id!="ex03") %>% 
+  dplyr::group_by(exp.id, atc.conc, day,strain) %>% 
+  summarise(ess_gene_num=length(unique(target.gene))) %>% 
+ ggplot(aes(strain,ess_gene_num))+
+  geom_text(aes(label = ess_gene_num), position = position_dodge2(width = 0.5, preserve = "single") ,size=3,vjust=-0.5, colour = "black")+
+  geom_bar(fill="grey", color="black",stat = "identity",position = position_dodge2(width = 0.5,preserve = "single"))+
+  scale_fill_manual(values = brewer.pal(n = 7, name = "Accent"))+
+  #scale_fill_manual(values = c("Atc-3"="#E69F00","Atc-30"="#74c476","Atc-300"="#0072B2"))+
+  facet_grid(~exp.id, scales = "free_x")+
+  ylim(0,720)+
+  ylab("Number of essential genes")+
+  force_panelsizes(cols = unit(c( 3, 2.1,3), "cm"), TRUE)+
+  theme_minimal()+
+  annotation_custom(grid::linesGrob(y = c(0, 0), gp = grid::gpar(lwd = 3))) +
+  annotation_custom(grid::linesGrob(x = c(0, 0), gp = grid::gpar(lwd = 3))) +
+  theme(panel.grid = element_blank(), strip.text = element_blank(), legend.position = "top", legend.title = element_blank(), legend.text = element_text(size = 12), axis.text.y = element_blank(), axis.text.x = element_text(size=10, angle = 45,vjust = 0.5), axis.title.y = element_text(size = 12), axis.title.x = element_blank(),panel.spacing.x = unit(10, 'mm'))
+
+Fig1B
+
+
+## Split synthetic lethal and more essential pattern
+
+#### identify genes that are essential in both strains
+
+ess_gene_norm_6206<-ess_gene_norm %>% filter(strain=="6206",exp.id!="ex03",atc.conc=="Atc-300",day=="d14")
+
+More_ess_gene_sum<-more_vulnerable_genes %>% 
+  filter(atc.conc=="Atc-300",day=="d14",exp.id!="ex03")
+
+More_ess_gene_sum$Info_6206<-ess_gene_norm_6206$SgRNA_n[match(paste0(More_ess_gene_sum$exp.id,More_ess_gene_sum$target.gene),paste0(ess_gene_norm_6206$exp.id,ess_gene_norm_6206$target.gene))]
+
+More_ess_gene_sum$is_more_ess=ifelse(is.na(More_ess_gene_sum$Info_6206),"N","Y")
+More_ess_gene_sum$gene_name<-sum_guide$name.vi[match(More_ess_gene_sum$target.gene,sum_guide$target.gene)]
+
+
+More_ess_tb<-More_ess_gene_sum %>% group_by(exp.id,comparison,is_more_ess) %>% summarise(Number_more_ess_gene=n_distinct(target.gene)) %>% 
+  mutate(comparison=gsub("_wt_comparison","",comparison)) %>% 
+  filter(comparison!="INH-1")
+
+
+Fig1Cb<-Fig1B+
+    geom_bar(data = More_ess_tb[More_ess_tb$is_more_ess=="Y",],aes(comparison,Number_more_ess_gene),position = position_dodge2(width = 0.8,preserve = "single"),
+                   stat = "identity",
+                   color = "black", 
+                   fill = "white")+
+    geom_col_pattern(data = More_ess_tb[More_ess_tb$is_more_ess=="N",], aes(comparison,Number_more_ess_gene),position = position_dodge2(width = 0.8,preserve = "single"),
+    fill            = 'white',
+    colour          = 'black', 
+    pattern_density = 0.2,
+    pattern_fill    = 'black',
+    pattern_colour  = 'black'
+    )
+
+
+Fig1Cb
+# =============================================================================================================== 
+
+# add functional classification and total number of gRNA per gene
+
+rock_essM_nameed<-rock_essM %>% mutate(target.gene = gsub("RVBD","RVBD_", locus_tag)) %>% 
+  select(target.gene,name,tnseq_ess,crispr_ess,Vulnerability.Index,VI.Lower.Bound,VI.Upper.Bound)
+
+kegg_class_info<-uni_pat_mycob_kegg_merge %>% select(target.gene,Class,Subclass)
+
+total_sgRNA_sum<- total_sgRNA_our_ex_res %>% ungroup() %>% select(exp.id, target.gene, atc.conc, day, guidePG) %>% unique()
+
+more_vulnerable_genes_merge<-merge(more_vulnerable_genes,kegg_class_info, by="target.gene", all.x=TRUE)
+more_vulnerable_genes_merge<-merge(more_vulnerable_genes_merge, total_sgRNA_sum, by=c("exp.id", "target.gene","day", "atc.conc"))
+
+more_vulnerable_genes_merge$gene_name<-uni_pat_mycob_kegg_merge$Gene_Name[match(more_vulnerable_genes_merge$target.gene,uni_pat_mycob_kegg_merge$target.gene)]
+
+
+# =========================== Figure 1B and Table S3 Increased vulnerable genes(Normed) ===========================
+
+
+## Make a directory and save Fig1B
+
+# dir.create(file.path("Results/CRISPRi/Figure"), showWarnings = FALSE)
+
+# ggsave(plot = Fig1Cb, filename = paste0("Results/CRISPRi/Figure/",format(Sys.Date(), "%y%m%d"),"_Fig1B.pdf"),width = 20,  height = 9, units = "cm",device = "pdf", dpi = 300)
+
+TableS3<-More_ess_gene_sum %>% 
+  ungroup() %>% 
+  filter(comparison!="INH-1_wt_comparison") %>% 
+  mutate(more_vulnerable_cateogry=ifelse(is_more_ess=="Y","More Essential","Synthetic Lethal")) %>% 
+  select(target.gene,comparison, more_vulnerable_cateogry,gene_name) 
+
+# write.csv(TableS3, file = paste0("Results/CRISPRi/Tables/",format(Sys.Date(), "%y%m%d"),"_TableS3_Increased_vulnerable_genes.csv"),row.names = FALSE)
+```
+
+
+```{r Functional overview of more essential genes }
+
+kegg_class_info<-uni_pat_mycob_kegg_merge %>% select(target.gene,Class,Subclass)
+
+total_sgRNA_sum<- total_sgRNA_our_ex_res %>% ungroup() %>% select(exp.id, target.gene, atc.conc, day, guidePG) %>% unique()
+
+
+# assign functional class and subclass
+more_vulnerable_genes_func<-merge(more_vulnerable_genes,kegg_class_info, by="target.gene", all.x=TRUE)
+more_vulnerable_genes_func$gene.name<-sum_guide$name.vi[match(more_vulnerable_genes_func$target.gene,sum_guide$target.gene)]
+more_vulnerable_genes_func<-merge(more_vulnerable_genes_func, total_sgRNA_sum, by=c("exp.id", "target.gene","day", "atc.conc"))
+
+ex_res_all_multirun_norm_filt<-ex_res_all_multirun_norm %>% 
+  filter(exp.id!="ex03", strain!="INH-1")
+
+# calculate the total number of genes per class/subclass
+total_genes_subclass<-ex_res_all_multirun_norm_filt %>% 
+  mutate(Class= uni_pat_mycob_kegg_merge$Class[match(target.gene,uni_pat_mycob_kegg_merge$target.gene)],
+         Subclass= uni_pat_mycob_kegg_merge$Subclass[match(target.gene,uni_pat_mycob_kegg_merge$target.gene)]) %>% 
+  group_by(Class,Subclass) %>% 
+  mutate(Class=ifelse(is.na(Class),"Unknown",Class),
+         Subclass=ifelse(is.na(Subclass),"Unknown",Subclass)) %>% 
+  summarise(total_gene_sub=length(unique(target.gene)))
+
+total_genes_class<-ex_res_all_multirun_norm_filt %>% 
+  mutate(Class= uni_pat_mycob_kegg_merge$Class[match(target.gene,uni_pat_mycob_kegg_merge$target.gene)]) %>% 
+  group_by(Class) %>% 
+  mutate(Class=ifelse(is.na(Class),"Unknown",Class)) %>% 
+  summarise(total_gene_class=length(unique(target.gene)))
+
+
+# generate dataset for figure making
+more_vulnerable_genes_merge_fig<-more_vulnerable_genes_func %>% 
+  mutate(Class=ifelse(is.na(Class),"Unknown",Class),
+         Subclass=ifelse(is.na(Subclass),"Unknown",Subclass), # , clean up the NA class and subclass
+    dep_guides_ratio=more_dep_guide_n/guidePG,# calculate the ratio of depleted guides
+         total_gene_sub=total_genes_subclass$total_gene_sub[match(Subclass,total_genes_subclass$Subclass)],
+    total_genes_class=total_genes_class$total_gene_class[match(Class,total_genes_class$Class)])
+
+more_vul_fig_class<-more_vulnerable_genes_merge_fig%>% 
+  filter(Class!="Carbonic anhydrase",comparison!="INH-1_wt_comparison", day!="d5") %>% # match and import total number of genes per class/subclass
+  dplyr::group_by(exp.id,day,atc.conc,comparison,Class,total_genes_class) %>%
+  reframe(dep_gene_total = n_distinct(target.gene),
+    dep_gene_percent = (n_distinct(target.gene) / total_genes_class)*100,
+    mean_dep_guides_ratio = mean(dep_guides_ratio)) %>% unique() %>% 
+  mutate(Class_new=paste0(Class," (",total_genes_class,")"))
+
+more_vul_fig_class$Class_new<-factor(more_vul_fig_class$Class_new,levels = unique(more_vul_fig_class[more_vul_fig_class$comparison=="BDQ-14_wt_comparison"&more_vul_fig_class$atc.conc=="Atc-300",]$Class_new[order(more_vul_fig_class$dep_gene_percent[more_vul_fig_class$comparison=="BDQ-14_wt_comparison"&more_vul_fig_class$atc.conc=="Atc-300"],decreasing = TRUE)]))
+# more_vul_fig_class$Class_new[is.na(more_vul_fig_class$Class_new)]<-
+
+# ============================ Fig 1C More essential functional dot plot (Class) ================================== 
+
+
+Fig1C<-more_vul_fig_class %>%  
+  filter(atc.conc=="Atc-300",!Class%in%c("Carbonic anhydrase","NA"),comparison!="INH-1_wt_comparison", day=="d14") %>% #
+  mutate(comparison=factor(comparison, levels=c("BDQ-14_wt_comparison","BDQ-2_wt_comparison","RIF-1_wt_comparison","LEV-11_wt_comparison", "LZD-2_wt_comparison"))) %>% 
+  ggplot(aes(x = Class_new,y = dep_gene_percent,size = mean_dep_guides_ratio))+ #,color = comparison
+  theme_bw()+
+  geom_point( alpha=0.7,show.legend = TRUE, color="#0072B2")+
+  theme( axis.text.x = element_text(size = 10, angle = 90, vjust = 1,hjust = 1),axis.title.x = element_blank(),legend.key.size = unit(3,'mm'),legend.position = "top",plot.tag = element_text(face = 'bold'),plot.margin = margin(5.5,5.5,5.5,0))+
+  #geom_tile(data=gene_selct_merge_sum_long, aes(x = 110, y = Subclass, fill = Class), width=5) +
+  scale_size_binned(breaks = c(0.2,0.4,0.6,0.8,1), limits = c(0.2,1),range = c(0.1,10))+
+  
+  guides(fill=guide_legend(ncol =1),colour = guide_legend(override.aes = list(size=5)))+
+  ylab("% of genes (sgRNA >=2) that are more essential in DR than the DS parent day 14 Atc-300") +
+  facet_grid(comparison~.) #, ncol = 1
+  #ggtitle("Percentage of > essential genes in INH-1 relative to WT6206 ")
+Fig1C
+
+### Save Fig1C in pdf format. Note that the X-axis names are quite long and require editing
+
+# ggsave(plot = Fig1C, filename = paste0("Results/CRISPRi/Figure/",format(Sys.Date(), "%y%m%d"),"_Fig1C.pdf"), width = 13,  height = 30, units = "cm",device = "pdf", dpi = 300 )
+
+# ================================================================================================================
+
+
+###### RIF only 
+
+more_vul_fig_class$Class_new<-factor(more_vul_fig_class$Class_new,levels = unique(more_vul_fig_class[more_vul_fig_class$comparison=="RIF-1_wt_comparison"&more_vul_fig_class$atc.conc=="Atc-300",]$Class_new[order(more_vul_fig_class$dep_gene_percent[more_vul_fig_class$comparison=="RIF-1_wt_comparison"&more_vul_fig_class$atc.conc=="Atc-300"],decreasing = TRUE)]))
+
+RIF_pathway_fig<-more_vul_fig_class %>%  
+  filter(atc.conc=="Atc-300",Class!="Carbonic anhydrase",comparison=="RIF-1_wt_comparison", day=="d14") %>% 
+  # mutate(comparison=factor(comparison, levels=c("BDQ-14_wt_comparison","BDQ-2_wt_comparison","LEV-11_wt_comparison", "LZD-2_wt_comparison","RIF-1_wt_comparison"))) %>% 
+  ggplot(aes(x = dep_gene_percent, y = Class_new,size = mean_dep_guides_ratio))+
+  theme_bw()+
+  geom_point(color = "#009E73", alpha=0.7,show.legend = TRUE)+
+  theme( axis.text.y = element_text(size = 10),axis.title.y = element_blank(),legend.key.size = unit(3,'mm'),legend.position = "top",plot.tag = element_text(face = 'bold'),plot.margin = margin(5.5,5.5,5.5,0))+
+  #geom_tile(data=gene_selct_merge_sum_long, aes(x = 110, y = Subclass, fill = Class), width=5) +
+  scale_size_binned(breaks = c(0.2,0.4,0.6,0.8,1), limits = c(0.2,1),range = c(0.1,10))+
+  
+  guides(fill=guide_legend(ncol =1),colour = guide_legend(override.aes = list(size=5)))+
+  xlab("Percentage of genes (sgRNA >=2) that are more essential in RIF-1 than the DS parent day 14 Atc-300") 
+
+
+RIF_pathway_fig
+
+
+
+SubClass_sel<-"Lysine, threonine, methionine, and cysteine"
+
+Fig4A<-more_vulnerable_genes_merge_fig%>%  # match and import total number of genes per class/subclass
+  filter(Subclass==SubClass_sel,atc.conc=="Atc-300",day=="d14",comparison!="INH-1_wt_comparison") %>% 
+  dplyr::group_by(exp.id,day,atc.conc,comparison,Class,Subclass,total_gene_sub) %>%
+  reframe(dep_gene_total = n_distinct(target.gene),
+    dep_gene_percent = (n_distinct(target.gene) / total_gene_sub)*100,
+    mean_dep_guides_ratio = mean(dep_guides_ratio)) %>% unique() %>%
+  mutate(DR_strain=gsub("_wt_comparison", "",comparison),
+         DR_strain=factor(DR_strain,levels = unique(DR_strain[order(dep_gene_percent,decreasing = FALSE)]))) %>% 
+  ggplot(aes(x = dep_gene_percent, y = DR_strain,size = mean_dep_guides_ratio))+
+  theme_bw()+
+  geom_point( alpha=0.7,show.legend = TRUE,,color="#0072B2")+
+  scale_size_binned(breaks = c(0.2,0.4,0.6,0.8,1), limits = c(0.2,1),range = c(0.1,10))+
+  theme(axis.text.y = element_text(size = 10),axis.title.y = element_blank(),legend.key.size = unit(3,'mm'),legend.position = "top",plot.tag = element_text(face = 'bold'),plot.margin = margin(5.5,5.5,5.5,0))+
+  
+  guides(fill=guide_legend(ncol =1),colour = guide_legend(override.aes = list(size=5)))+
+  xlab("% of genes (sgRNA >=2) that are more essential in DR than WT6206 Atc-300")+ #+
+  facet_grid(Subclass~.)
+Fig4A
+
+# ======================= Fig 4A More essential functional dot plot Cysteine (Subclass) ========================== 
+
+# modify text in illustrator
+# ggsave(plot = Fig4A, filename = paste0("Results/CRISPRi/Figure/", format(Sys.Date(), "%y%m%d"), "_Fig4A.pdf"),width = 12,  height = 6.5, units = "cm",device = "pdf", dpi = 300) 
+
+
+
+```
+
+
+
+```{r upset plot showing shared and unique genes across more essential genes}
+
+# transform dataframe to list format
+
+upset_more_vul<-more_vulnerable_genes %>% 
+  filter(day=="d14", atc.conc=="Atc-300", exp.id!="ex03", comparison!="INH-1_wt_comparison") %>% 
+  mutate(comparison=gsub("_comparison","",comparison)) %>% 
+  #select(target.gene,comparison) %>% 
+  dplyr::group_by(comparison) %>% 
+  summarise(genes=list(target.gene)) %>% 
+  deframe()
+
+upset_more_vul_wide<-more_vulnerable_genes %>% 
+  filter(day=="d14", atc.conc=="Atc-300", exp.id!="ex03", comparison!="INH-1_wt_comparison") %>%
+  mutate(comparison=gsub("_comparison","",comparison)) %>% 
+  pivot_wider(id_cols = c(target.gene),names_from = comparison, values_from = more_dep_guide_n) 
+upset_more_vul_wide$shared_more_vul<-rowSums(!is.na(upset_more_vul_wide))-1
+upset_more_vul_wide$gene_name<-sum_guide$name.vi[match(upset_more_vul_wide$target.gene,sum_guide$target.gene)]
+# make upset diagram
+
+
+
+UpSet_Plot<-UpSetR::upset(fromList(upset_more_vul), 
+                          sets = rev(names(upset_more_vul)), 
+                          order.by = "freq",
+                          keep.order = TRUE,
+                          main.bar.color="darkgrey",
+                          show.numbers = "no",
+                          sets.x.label=NULL)
+UpSet_Plot
+
+
+all_shared_genes<- upset_more_vul_wide$target.gene[upset_more_vul_wide$shared_more_vul==5]
+
+all_shared_genes_guides<-ex_res_all_multirun_norm %>% 
+  filter(target.gene%in%all_shared_genes, exp.id!="ex03",strain!="INH-1", atc.conc=="Atc-300") %>% #day=="d14"
+  mutate(gene_name=sum_guide$name.vi[match(target.gene,sum_guide$target.gene)])
+
+# for (g in all_shared_genes) {
+#   plot_temp<-all_shared_genes_guides %>% filter(target.gene==g) %>% 
+#     ggplot(aes(day,logFC,group = paste0(guide.id,strain), shape = strain))+
+#   geom_line()+
+#   geom_point(size = 3)+
+#   facet_wrap(exp.id~target.gene+guide.id, ncol = 6)+
+#   theme_bw()
+#   plot(plot_temp)
+# }
+
+#===================== Fig 2A Upset plot and Table S4 sourcedata ==========================
+
+# ggsave(plot = UpSet_Plot, filename = paste0("Results/CRISPRi/Figure/", format(Sys.Date(), "%y%m%d"), "_Fig2A.pdf"),width = 15,  height = 10, units = "cm",device = "pdf", dpi = 300) 
+
+# write.csv(upset_more_vul_wide,file = paste0("Results/CRISPRi/Figure/", format(Sys.Date(), "%y%m%d"), "_TableS4_Fig2A_SourceData.csv"))
+
+```
+
+
+
+```{r tRNA synthetase analyses}
+### how many tRNA synthetase are being more vulnerable to inhibiton that are shared by how many 
+
+tRNA_synthetase_genes<-more_vulnerable_genes_merge_fig %>% 
+  filter(day=="d14", atc.conc=="Atc-300", exp.id!="ex03", comparison!="INH-1_wt_comparison", Subclass%in%c("Aminoacyl-tRNA-synthetases"))
+
+# separate tRNA synthetase by their classes
+tRNA_classes<-read.csv("Documents/tRNA_synthetase_crispri_sum.csv", header = TRUE)
+
+tRNA_synthetase_genes_classified<-tRNA_synthetase_genes %>% mutate(tRNA_class=tRNA_classes$aa.tRNA.synthetase.Class[match(target.gene, tRNA_classes$target.gene)],
+        DR_strain = as.character(gsub("_wt_comparison","",comparison)))
+
+# Counting number of more essential tRNA synthetase per isolate 
+tRNA_synthetase_iso_sum<-tRNA_synthetase_genes_classified %>% group_by(DR_strain) %>% summarise(total_more_ess_tRNA_synthetase=n_distinct(target.gene)) %>% arrange(.,desc(total_more_ess_tRNA_synthetase))
+
+tRNA_synthetase_gene_sum<-tRNA_synthetase_genes_classified %>% group_by(target.gene, gene.name) %>% summarise(total_more_ess_tRNA_synthetase=n_distinct(DR_strain)) %>% arrange(.,desc(total_more_ess_tRNA_synthetase))
+
+tRNA_synthetase_plot<-tRNA_synthetase_genes_classified %>% 
+  mutate(DR_strain=factor(DR_strain, levels = c("BDQ-2", "BDQ-14",  "LEV-11", "LZD-2",  "RIF-1")),
+         gene.name=factor(gene.name, levels = tRNA_synthetase_gene_sum$gene.name)) %>% 
+  filter(!is.na(tRNA_class)) %>% 
+  mutate(more_dep_guide_n=as.character(more_dep_guide_n)) %>% 
+  ggplot(aes(DR_strain,gene.name))+
+  geom_point(aes(size=more_dep_guide_n, color=tRNA_class))+
+  scale_color_manual(values = c("#40B0A6","#E1BE6A"))+
+  facet_grid(~tRNA_class, scale="free_x",space='free')+
+  theme_bw()+
+  theme(axis.title = element_blank(), axis.text.x = element_text(angle = 90), legend.position = "top")+
+  coord_flip()
+tRNA_synthetase_plot
+
+#===================== Fig 2D tRNA synthetase genes being more vulnerable ==========================
+
+# ggsave(plot = tRNA_synthetase_plot, filename = paste0("Results/CRISPRi/Figure/", format(Sys.Date(), "%y%m%d") ,"_Fig2D.pdf"),width = 16,  height = 8, units = "cm",device = "pdf", dpi = 300)
+
+
+```
+
+
+```{r hypothesis - Atp genes more vulnerable to inhibition in BDQR-AtpE}
+
+
+gene_name_uni_guide<-sum_guide %>% select(target.gene,name.vi) %>% unique()
+
+#### To use this for other target genes and guides. Change the gene IDs from the following list (in quotes). Then change the target experiment ID
+
+# change your target set of genes and their names (in the same order).
+target_sets<-c("RVBD_1304","RVBD_1305", "RVBD_1306","RVBD_1307","RVBD_1308","RVBD_1309","RVBD_1310","RVBD_1311") 
+
+# The gene name needs to be same order as listed in target_sets, 
+target_gene.names<-sum_guide$name.vi[match(target_sets,sum_guide$target.gene)] %>% sort()
+
+# set the target experiment ID, change this to the experiment that you want to check genes, for example, if you want to look at genes from RIF-1 and WT, which were from ex08 then change the following to set_exp<-"ex08"
+set_exp<-"ex09"
+
+
+
+atp_ex_res<-ex_res_all_multirun_norm %>% 
+  filter(exp.id==set_exp,target.gene%in%target_sets) %>% 
+  mutate(gene.name=gene_name_uni_guide$name.vi[match(target.gene,gene_name_uni_guide$target.gene)],
+         gene.name=factor(gene.name,levels=target_gene.names)) %>%
+  group_by(target.gene,gene.name,atc.conc,strain,day) %>% 
+  summarise(mean_logFC=mean(logFC),se_logFC=sd(logFC)/sqrt(n_distinct(guide.id)))
+
+
+ex_res_all_multirun_norm %>% 
+  filter(exp.id==set_exp,target.gene%in%target_sets) %>% 
+  mutate(target.gene=factor(target.gene,levels=target_sets),
+         gene.name=gene_name_uni_guide$name.vi[match(target.gene,gene_name_uni_guide$target.gene)],
+         gene.name=factor(gene.name,levels=target_gene.names)) %>%
+  filter(atc.conc=="Atc-300") %>% 
+  ggplot(aes(day,logFC, shape=strain,group=strain))+
+  geom_point(aes(shape=strain,group=strain),size=3)+
+  geom_line(aes(),color="black")+
+  scale_shape_manual(values = c(16, 2,3))+
+  #geom_errorbar(aes(ymin=mean_logFC-se_logFC, ymax=mean_logFC+se_logFC),width=0.2)+
+  facet_wrap(gene.name~guide.id,ncol = 12)+theme_bw()+theme(axis.title.x = element_blank())
+
+
+# based on the results, select for the targeted guides and list them here in quotes
+target_guides<-c("g-07595","g-07631", "g-07626","g-07622","g-07609")
+
+
+Fig3A<-ex_res_all_multirun_norm %>% 
+  filter(exp.id==set_exp,atc.conc=="Atc-300",target.gene%in%target_sets) %>% 
+  mutate(target.gene=factor(target.gene,levels=target_sets),
+         gene.name=gene_name_uni_guide$name.vi[match(target.gene,gene_name_uni_guide$target.gene)],
+         gene.name=factor(gene.name,levels=target_gene.names)) %>%
+  filter(atc.conc=="Atc-300") %>% 
+  filter(guide.id%in%target_guides) %>% 
+  ggplot(aes(day,logFC, shape=strain,group=strain))+
+  geom_point(aes(shape=strain,color=strain),size=2)+
+  geom_line(aes(color=strain,linetype = strain) )+
+  # Note: shape for each strain can be changed based on the table from https://www.sthda.com/english/wiki/ggplot2-point-shapes
+  scale_shape_manual(values = c(16, 2,0))+
+  scale_color_manual(values = c("#000000","#FF9200","#0095FF"))+
+  # Note: linetype can be modified. 0: blank, 1: solid, 2: dashed, 3: dotted, 4: dot dash, 5: long dash, 6: two dash
+  scale_linetype_manual(values = c(1, 2, 2))+
+  theme_bw()+
+  facet_wrap(gene.name~guide.id, nrow=1)+ #, ncol=12
+  theme(axis.title.x = element_blank())
+
+Fig3A
+
+#================ Fig 3A alternative ATP synthase are more vulnerable to inhibition ================
+
+
+# ggsave(plot = Fig3A, filename = paste0("Results/CRISPRi/Figure/", format(Sys.Date(), "%y%m%d") ,"_Fig3A.pdf"),width = 135,  height = 45, units = "mm",device = "pdf", dpi = 300)
+
+
+
+
+```
+
+
+```{r rpoABCZ are more vulnerable to inhibition in RIFR-rpoB }
+
+# same as above, this code chunk is for generating Fig 3D.
+target_sets<-c("RVBD_3456c","RVBD_3457c","RVBD_3458c","RVBD_3459c","RVBD_3460c", "RVBD_0667", "RVBD_0668", "RVBD_1390")
+
+# The gene name needs to be same order as listed in target_sets, 
+target_gene.names<-sum_guide$name.vi[match(target_sets,sum_guide$target.gene)] %>% sort()
+
+# set the target experiment ID, change this to the experiment that you want to check genes.
+set_exp<-"ex08"
+
+
+ex_res_all_multirun_norm %>% 
+  filter(exp.id==set_exp,target.gene%in%target_sets) %>% # , strain!="INH-1"
+  mutate(target.gene=factor(target.gene,levels=target_sets),
+         gene.name=gene_name_uni_guide$name.vi[match(target.gene,gene_name_uni_guide$target.gene)],
+         gene.name=factor(gene.name,levels=target_gene.names)) %>%
+  filter(atc.conc=="Atc-300") %>% 
+  ggplot(aes(day,logFC, shape=strain,group=strain))+
+  geom_point(aes(shape=strain,group=strain),size=3)+
+  geom_line(aes(),color="black")+
+  scale_shape_manual(values = c(16, 2,3))+
+  #geom_errorbar(aes(ymin=mean_logFC-se_logFC, ymax=mean_logFC+se_logFC),width=0.2)+
+  facet_wrap(gene.name~guide.id,ncol = 12)+theme_bw()+theme(axis.title.x = element_blank())
+
+
+target_guides<-c("g-20222","g-20229","g-20234","g-20241","g-20247","g-03961","g-03965","g-08091")
+
+
+Fig3D_RIF1_rpox<-ex_res_all_multirun_norm %>% 
+  filter(exp.id==set_exp,target.gene%in%target_sets, strain!="INH-1") %>% # 
+  mutate(target.gene=factor(target.gene,levels=target_sets),
+         gene.name=gene_name_uni_guide$name.vi[match(target.gene,gene_name_uni_guide$target.gene)],
+         gene.name=factor(gene.name,levels=target_gene.names)) %>%
+  filter(atc.conc=="Atc-300") %>% 
+  filter(guide.id%in%target_guides) %>% 
+  ggplot(aes(day,logFC, shape=strain,group=strain))+
+  geom_line(aes(linetype=strain),color="black")+
+  geom_point(aes(shape=strain,group=strain),size=2)+
+  scale_shape_manual(values = c(16, 1))+
+  scale_linetype_manual(values = c(1, 2))+
+  #geom_errorbar(aes(ymin=mean_logFC-se_logFC, ymax=mean_logFC+se_logFC),width=0.2)+
+  facet_wrap(gene.name~guide.id, ncol=5)+theme_bw()+theme(axis.title.x = element_blank())
+
+  
+Fig3D_RIF1_rpox
+
+
+
+#================ Fig 3D rpo vulnerabilities in RIF-1 ================
+
+# note this may contains more guide than you need, extract targeted panels using illustrator
+
+# ggsave(plot = Fig3D_RIF1_rpox, filename = paste0("Results/CRISPRi/Figure/", format(Sys.Date(), "%y%m%d") ,"_Fig3D.pdf"),width = 130,  height = 80, units = "mm",device = "pdf", dpi = 300)
+
+
+
+```
