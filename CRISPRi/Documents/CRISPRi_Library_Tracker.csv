@@ -1,0 +1,9 @@
+﻿Library_Number,Summary,MiGS_sample_name,Experiment,Sequencing_Provider,SeqID,Sequencing_platform,Description
+15a,CRISPRi_WGKD_mc26206_LZD-2 D5 D10 and D14,Mtb_gRNA_Lib15,ex07,SeqCenter #4320a2,4320a2,NextSeq 2000 P2 100 bp SE,
+16a,CRISPRi_WGKD_mc26206_LEV-11 D5 D10 and D14,Mtb_gRNA_Lib16,ex07,SeqCenter #4320b2,4320b2,NextSeq 2000 P2 100 bp SE,
+17a,CRISPRi_WGKD_mc26206_WT_D5 D10 and D14,Mtb_gRNA_Lib17,ex07,SeqCenter #4320c2,4320c2,NextSeq 2000 P2 100 bp SE,
+19,CRISPRi_WGKD_mc26206_RIF-1 D5 D10 and D15,Mtb_gRNA_Lib19,ex08,SeqCenter #5440b,5440b,NextSeq 2000 P2 100 bp SE,
+20,CRISPRi_WGKD_mc26206_WT_D5 and D14,Mtb_gRNA_Lib20,ex08,SeqCenter #5767a,5767a,NextSeq 2000 P2 100 bp SE,
+21,CRISPRi_WGKD_mc26206_BDQ-2 D5 D10 and D14,Mtb_gRNA_Lib21,ex09,SeqCenter #5767b,5767b,NextSeq 2000 P2 100 bp SE,
+22,CRISPRi_WGKD_mc26206_BDQ-14 D5 D10 and D14,Mtb_gRNA_Lib22,ex09,SeqCenter #5767c,5767c,NextSeq 2000 P2 100 bp SE,
+23,CRISPRi_WGKD_mc26206_WT_D5 D10 and D14,Mtb_gRNA_Lib23,ex09,SeqCenter #5767d,5767d,NextSeq 2000 P2 100 bp SE,
