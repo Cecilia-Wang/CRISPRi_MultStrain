@@ -1,4 +1,5 @@
-#### CRISPRi analyses
+CRISPRi analyses
+----------------
 
 All necessary intermediate files including metadata and output from CRISPRi_step2_reads_sum.R are provided to allow downstream tests in R
 
