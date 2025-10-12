@@ -5,12 +5,13 @@ All necessary intermediate files including metadata and output from CRISPRi_step
 **Instructions:**
 
  - Download the zipped R project file to a preferred location and unzip the file
- - Open the CRISPRi_related_data_analyses_CW.Rproj in Rstudio, you should see the name appear on the top right corner. Loading the project will allow relative path to work, without doing so will cause issues when loading files. The system platform information is provided down the bottom of this readme file.
+ - Open the CRISPRi_related_data_analyses_CW.Rproj in Rstudio, you should see the name appear on the top right corner. Loading the project will allow relative path to work, without doing so will cause issues when loading files. The system platform information is provided down the bottom of this readme file. Note that first time setting up the project might require installation of R packages and Rstudio reset 
  - (Optional) Exact tests. 
    - In Rstudio, open up the CRISPRi_step3_exact_test.Rmd (in Scripts/CRISPRi) to run the exact tests. Input files for this step are available at Results/CRISPRi/data_long/,whcih is preset using the R project settings so no need to change path or anything. The results of this step are also provided for this step so feel free to skip
  - Gene vulnerability tests and figure generation
    - Within the same R project Rstudio window, open the script 2025_Muti_strain_CRISPRi.Rmd (in Scripts/CRISPRi)
-   - 
+   - Install and load the required libraries via running the first chunk of code (ie. "packman load libraries") provided in the file, which will perpare the environment for the following analyses
+   - After the environment has been prepared, make sure to run the code chunks in order (DONOT skip chunks) as some code chunks would build variables for downstream analyses
   
 
 For each screen, raw gRNA reads from sequencing data was extracted and calculated using high-performance computing service provided by New Zealand eScience Infrastructure (NeSI)  using the scripts CRISPRi_step1-preprocess_2025_v2.sl.sh and CRISPRi_step2_reads_sum.R 
