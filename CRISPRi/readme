@@ -1,1 +1,0 @@
-The scripts were designed to run on a slurm managed server platfrom. To run under linux/unix, extract the bash script part, adjust pathways and file names, then run
