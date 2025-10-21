@@ -1,28 +1,36 @@
-CRISPRi analyses
+Overview
+----------------
+This github repository facilitates the analytical support for the manuscript "Genome scale CRISPRi reveals both shared and strain-specific vulnerabilities in genetically diverse drug-resistant strains of Mycobacterium tuberculosis". 
+
+Demo data for testing R scripts are available. Necessary intermediate files and metadata are provided to allow downstream analyses in R.
+
+Instructions:
 ----------------
 
-All necessary intermediate files including metadata and output from CRISPRi_step2_reads_sum.R are provided to allow downstream tests in R
-
-**Instructions:**
-
- - Download the zipped R project file to a preferred location and unzip the file
- - Open the CRISPRi_related_data_analyses_CW.Rproj in Rstudio, you should see the name appear on the top right corner. Loading the project will allow relative path to work, without doing so will cause issues when loading files. The system platform information is provided down the bottom of this readme file. Note that first time setting up the project might require installation of R packages and Rstudio reset 
- - (Optional) Exact tests. 
-   - In Rstudio, open up the CRISPRi_step3_exact_test.Rmd (in Scripts/CRISPRi) to run the exact tests. Input files for this step are available at Results/CRISPRi/data_long/,whcih is preset using the R project settings so no need to change path or anything. The results of this step are also provided for this step so feel free to skip
+ - Download and install R (https://cran.r-project.org/mirrors.html) from the official websites based on your operational system, and the same for Rstudio (https://posit.co/download/rstudio-desktop/). Installation for both should be fairly quick and would only take a few minutes.
+ - Download the zipped R project file to a preferred location and unzip the file.
+ - Open the CRISPRi_related_data_analyses_CW.Rproj in Rstudio, you should see the name appear on the top right corner. Loading the project will allow relative path to work, without doing so will cause issues when loading files. The system platform information is provided down the bottom of this readme file. Required packages for each script had been coded at the start so please make sure when running the script, and please do not skip lines. If the required packages were not present in the system, it may take 10~15 minutes for installation first time running the script, however, once these packages have been installed, the script would automatically skip the installation step and loading packages should be more or less instant.
+ - Reads sum
+   - Within R project In Rstudio, open up the CRISPRi_step2_reads_sum.R, a demo input file is available at Documents/Demo_CRISPRi_data/
+   - File path is coded as relative path where possible thus please don't change any directory listed in the script. Simply run the script and the output of gRNA counts per will be saved to Results. Note as this is demo data (a subset of real data thus won't fully reflect actual results)
+ - Exact tests 
+   - Within the same R project In Rstudio, open up the CRISPRi_step3_exact_test.Rmd (in Scripts/CRISPRi) to run the exact tests. Input files for this step are available at Results/CRISPRi/data_long/,whcih is preset using the R project settings so no need to change path or anything. The results of this step are also provided for this step so feel free to skip
  - Gene vulnerability tests and figure generation
    - Within the same R project Rstudio window, open the script 2025_Muti_strain_CRISPRi.Rmd (in Scripts/CRISPRi)
    - Install and load the required libraries via running the first chunk of code (ie. "packman load libraries") provided in the file, which will perpare the environment for the following analyses
    - After the environment has been prepared, make sure to run the code chunks in order (DONOT skip chunks) as some code chunks would build variables for downstream analyses
-  
-
-For each screen, raw gRNA reads from sequencing data was extracted and calculated using high-performance computing service provided by New Zealand eScience Infrastructure (NeSI)  using the scripts CRISPRi_step1-preprocess_2025_v2.sl.sh and CRISPRi_step2_reads_sum.R 
+   - File path is coded as relative path where possible thus please don't change any directory listed in the script. 
 
 
 
+Preprocess of the raw sequencing files were conducted using high-performance computing service provided by New Zealand eScience Infrastructure (NeSI) 
 
-**System information for running the scripts**
 
-sessionInfo()
+System information
+-------------------
+This protocol requires access to a Slurm-managed system for preprocessing, and macOC for downstream data analyses. 
+
+System information that the author used as the following:
 
 R version 4.5.1 (2025-06-13)
 
