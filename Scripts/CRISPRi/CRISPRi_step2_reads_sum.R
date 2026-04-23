@@ -42,9 +42,9 @@ for (p in Proj_IDs) {
       left_join(sample_meta, by = c("sample.ID"="sample")) %>% 
       relocate(any_of(c("refseq.full","sample.ID","reads")), .after = "guide.id") %>% 
       relocate("target.gene", .before = "ref.sequence") %>% 
-      rename("ref.sequence"="guide.sequence",
-             "refseq.full"="guide.tag",
-             "sample.ID"="sample") %>% 
+      dplyr::rename("guide.sequence"="ref.sequence",
+             "guide.tag"="refseq.full",
+             "sample"="sample.ID") %>% 
       arrange(guide.id)
     matched_counts_reshaped<-rbind(matched_counts_reshaped,temp_df)
     
