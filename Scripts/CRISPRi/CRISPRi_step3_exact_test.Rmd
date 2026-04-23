@@ -137,7 +137,7 @@ library_tracker<-read_csv("Documents/CRISPRi_Library_Tracker.csv")
 
 data.all1<-tibble()
 
-ProjectDIR<-"Results/"
+ProjectDIR<-"Results/CRISPRi/data_long/"
 
 for (migs.run in migs.runs){
   
