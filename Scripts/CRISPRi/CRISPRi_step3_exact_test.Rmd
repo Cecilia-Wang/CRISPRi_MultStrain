@@ -137,7 +137,7 @@ library_tracker<-read_csv("Documents/CRISPRi_Library_Tracker.csv")
 
 data.all1<-tibble()
 
-ProjectDIR<-"Results/CRISPRi/data_long/"
+ProjectDIR<-"Results/"
 
 for (migs.run in migs.runs){
   
@@ -190,7 +190,9 @@ data.all1%>%group_by(strain,day,exp.id) %>% tally() %>% print(n=36)
 #### Before running below, make sure the output directory and subdirectories (as follows) exist, create one if not ####
 ## <outdir>/output/<select.exp.id>
 
-#
+############# Please note that the following analysis will only run with full datasets (which are too big to be uploaded to github), test sets will cause partial error as subset data is incomplete for comparison ############# 
+# partial run for 5767a test set, one figure will be generated with the datapoints, but won't have full results
+run_analysis("6206",5,"Atc-0.00","ex08",ProjectDIR)
 
 # Run relevant analyses from below
 # 
