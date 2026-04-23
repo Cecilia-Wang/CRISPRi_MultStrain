@@ -14,7 +14,7 @@ Instructions:
    - Within R project In Rstudio, open up the CRISPRi_step2_reads_sum.R, a demo input file is available at Documents/Demo_CRISPRi_data/
    - File path is coded as relative path where possible thus please don't change any directory listed in the script. Simply run the script and the output of gRNA counts per will be saved to Results. Note as this is demo data (a subset of real data thus won't fully reflect actual results)
  - Exact tests 
-   - Within the same R project In Rstudio, open up the CRISPRi_step3_exact_test.Rmd (in Scripts/CRISPRi) to run the exact tests. Input files for this step are available at Results/CRISPRi/data_long/,whcih is preset using the R project settings so no need to change path or anything. The results of this step are also provided for this step so feel free to skip
+   - Within the same R project In Rstudio, open up the CRISPRi_step3_exact_test.Rmd (in Scripts/CRISPRi) to run the exact tests. A test input file is available for download data_long_5767a.tsv[https://www.dropbox.com/scl/fi/ak7t64p4xfjhcfyo02s1z/data_long_5767a.tsv?rlkey=xcj3c9625j1zn27h9xfw5vepi&st=92nhtuv2&dl=0]. Please save the downloaded file at Results/CRISPRi/data_long/. The results of this step are also provided for this step so feel free to skip.
  - Gene vulnerability tests and figure generation
    - Within the same R project Rstudio window, open the script 2025_Muti_strain_CRISPRi.Rmd (in Scripts/CRISPRi)
    - Install and load the required libraries via running the first chunk of code (ie. "packman load libraries") provided in the file, which will perpare the environment for the following analyses
